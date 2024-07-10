@@ -33,6 +33,7 @@ static const char TAG[] = "MQTT-C";
 
 static struct mqtt_task
 {
+	char serverURL[50];
 	TaskHandle_t taskHandle;
 	MessageBufferHandle_t xBufHandle;
 	EventGroupHandle_t eventGroup;
@@ -186,7 +187,7 @@ void mqtt_task(void *pvParameters)
 	if (this.mqtt_client != NULL)
 		return;
 
-	char *serverURL = pvParameters;
+	char *serverURL = (char *)pvParameters;
 	ESP_LOGI(TAG, "Start:param.url=[%s]\n", serverURL);
 	// Create Buffer stream
 	this.xBufHandle = xMessageBufferCreate(sizeof(Mqtt_Msg_t) + sizeof(size_t));
@@ -216,9 +217,9 @@ void mqtt_task(void *pvParameters)
 	mqtt_eventBitCtrl(MQTT_EVENT_CONNECTED_BIT, EVENT_CLEAR);
 
 	// Wait for connection to MQTT Broker
-	// mqtt_eventWait(MQTT_EVENT_CONNECTED_BIT, EVENT_WAIT_ALL);
+	mqtt_eventWait(MQTT_EVENT_CONNECTED_BIT, EVENT_WAIT_ALL);
 
-	ESP_LOGI(TAG, "MQTT Connected\n");
+	// ESP_LOGI(TAG, "MQTT Connected\n");
 
 	while (1)
 	{
@@ -268,12 +269,11 @@ void mqtt_task_init(const char *url)
 	if (this.taskHandle != NULL)
 		return;
 
-	ESP_LOGI(TAG, "start mqtt client: url=[%s]\n", url);
-
 	// Start MQTT task
-	char serverURL[64];
-	strncpy(serverURL, url, sizeof(serverURL) / sizeof(serverURL[0]));
+	sprintf(this.serverURL, "%s", url);
+
+	ESP_LOGI(TAG, "start mqtt client: url=[%s]\n", this.serverURL);
 
 	this.taskHandle = xTaskGetCurrentTaskHandle();
-	xTaskCreate(mqtt_task, TAG, 1024 * 6, (void *)serverURL, 9, NULL);
+	xTaskCreate(mqtt_task, TAG, 1024 * 6, (void *)this.serverURL, 9, NULL);
 }
