@@ -21,6 +21,7 @@
 #endif
 #include "esp_system.h"
 #include "esp_log.h"
+#include "esp_check.h"
 #include "esp_event.h"
 
 #include "esp_mac.h" // esp_base_mac_addr_get
@@ -38,38 +39,39 @@ static struct mqtt_task
 	MessageBufferHandle_t xBufHandle;
 	EventGroupHandle_t eventGroup;
 	esp_mqtt_client_handle_t mqtt_client;
-} this = {NULL};
+} this;
 
-static void mqtt_eventBitCtrl(const EventBits_t flags, bool setOrClear);
-static void mqtt_eventWait(const EventBits_t flags, bool waitAllFlags);
-static void mqtt_publisher(Mqtt_Msg_t *buffer);
-static void mqtt_subscriber(Mqtt_Msg_t *buffer);
+static esp_err_t mqtt_eventBitCtrl(const EventBits_t flags, bool setOrClear);
+static esp_err_t mqtt_eventWait(const EventBits_t flags, bool waitAllFlags);
+static esp_err_t mqtt_publisher(Mqtt_Msg_t *buffer);
+static esp_err_t mqtt_subscriber(Mqtt_Msg_t *buffer);
+static void mqtt_task(void *pvParameters);
 
-void mqtt_pubMsgTo(const char* topic, const char *context, int qos, int r)
+esp_err_t mqtt_pubMsgTo(const char* topic, const char *context, int qos, int r)
 {
-	if(this.taskHandle == NULL) return;
-	// ESP_LOGI(TAG, "pub@{%s}: %s", topic, context);
+	ESP_RETURN_ON_FALSE(this.taskHandle != NULL, ESP_FAIL, TAG, "task not init");
 	
 	Mqtt_Msg_t buffer = {
 		.qos = qos,
 		.retainFlag = r,
 	};
-
 	sprintf(buffer.topic, "%s", topic);
 	sprintf(buffer.context, "%s", context);
+	size_t bufferSize = sizeof(Mqtt_Msg_t);
 
 	mqtt_eventBitCtrl(MQTT_EVENT_PUB, EVENT_SET);
 
 	BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-	size_t sended = xMessageBufferSendFromISR(this.xBufHandle, &buffer, sizeof(Mqtt_Msg_t), &xHigherPriorityTaskWoken);
+	size_t sended = xMessageBufferSendFromISR(this.xBufHandle, &buffer, bufferSize, &xHigherPriorityTaskWoken);
 
-	// printf("mqtt_pubMsgTo sended=%d\n",sended);
-	assert(sended == sizeof(Mqtt_Msg_t));
+	ESP_RETURN_ON_FALSE((sended == bufferSize), ESP_FAIL, TAG, "size diff %d != %d", sended, bufferSize);
+
+	return ESP_OK;
 }
 
-void mqtt_subTopicCfg(const char* topic, int qos, bool subOrUn)
+esp_err_t mqtt_subTopicCfg(const char* topic, int qos, bool subOrUn)
 {
-	if(this.taskHandle == NULL) return;
+	ESP_RETURN_ON_FALSE(this.taskHandle != NULL, ESP_FAIL, TAG, "task not init");
 
 	ESP_LOGI(TAG, "%s subscribe @ {%s}", subOrUn?"":"X", topic);
 
@@ -77,72 +79,77 @@ void mqtt_subTopicCfg(const char* topic, int qos, bool subOrUn)
 		.qos = qos,
 	};
 	sprintf(buffer.topic, "%s", topic);
+	size_t bufferSize = sizeof(Mqtt_Msg_t);
 
 	mqtt_eventBitCtrl(subOrUn ? MQTT_EVENT_SUB : MQTT_EVENT_UNSUB, EVENT_SET);
 
 	BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 	size_t sended = xMessageBufferSendFromISR(this.xBufHandle, &buffer, sizeof(Mqtt_Msg_t), &xHigherPriorityTaskWoken);
-
-	// printf("mqtt_pubMsgTo sended=%d\n",sended);
-	assert(sended == sizeof(Mqtt_Msg_t));
+	
+	ESP_RETURN_ON_FALSE((sended == bufferSize), ESP_FAIL, TAG, "size diff %d != %d", sended, bufferSize);
+	return ESP_OK;
 }
 
-static void mqtt_eventBitCtrl(const EventBits_t flags, bool setOrClear)
+static esp_err_t mqtt_eventBitCtrl(const EventBits_t flags, bool setOrClear)
 {
-	if (this.eventGroup == NULL)
-		return;
+	ESP_RETURN_ON_FALSE(this.eventGroup != NULL, ESP_FAIL, TAG, "eventGroup not init");
 
 	if (setOrClear == EVENT_SET)
 		xEventGroupSetBits(this.eventGroup, flags);
 	else
 		xEventGroupClearBits(this.eventGroup, flags);
+	
+	return ESP_OK;
 }
 
-static void mqtt_eventWait(const EventBits_t flags, bool waitAllFlags)
+static esp_err_t mqtt_eventWait(const EventBits_t flags, bool waitAllFlags)
 {
-	if (this.eventGroup == NULL)
-		return;
+	ESP_RETURN_ON_FALSE(this.eventGroup != NULL, ESP_FAIL, TAG, "eventGroup not init");
 
 	xEventGroupWaitBits(this.eventGroup, flags, false, waitAllFlags, portMAX_DELAY);
+
+	return ESP_OK;
 }
 
-static void mqtt_publisher(Mqtt_Msg_t *buffer)
+static esp_err_t mqtt_publisher(Mqtt_Msg_t *buffer)
 {
-	if(this.mqtt_client == NULL) return;
+	ESP_RETURN_ON_FALSE(this.mqtt_client != NULL, ESP_FAIL, TAG, "mqtt_client not init");
 
 	size_t size = strlen(buffer->context);
-
 	/* Remove trailing LF */
 	if (buffer->context[size - 1] == 0x0a) size = size - 1;
-	
 	if (size)
 	{
 		esp_mqtt_client_publish(this.mqtt_client, buffer->topic, buffer->context, size, buffer->qos, buffer->retainFlag);
-
-		// ESP_LOGI(TAG, "pub @ {%s}: %s", buffer->topic, buffer->context);
 	}
 	else
 	{
 		ESP_LOGI(TAG, "buffer size error");
 	}
+
+	return ESP_OK;
 }
 
-static void mqtt_subscriber(Mqtt_Msg_t *buffer)
+static esp_err_t mqtt_subscriber(Mqtt_Msg_t *buffer)
 {
-	if(this.mqtt_client == NULL) return;
+	ESP_RETURN_ON_FALSE(this.mqtt_client != NULL, ESP_FAIL, TAG, "mqtt_client not init");
 
 	esp_mqtt_client_subscribe(this.mqtt_client, buffer->topic, buffer->qos);
 
 	ESP_LOGI(TAG, "sub @ {%s}", buffer->topic);
+
+	return ESP_OK;
 }
 
-static void mqtt_unsubscriber(Mqtt_Msg_t *buffer)
+static esp_err_t mqtt_unsubscriber(Mqtt_Msg_t *buffer)
 {
-	if(this.mqtt_client == NULL) return;
+	ESP_RETURN_ON_FALSE(this.mqtt_client != NULL, ESP_FAIL, TAG, "mqtt_client not init");
 
 	esp_mqtt_client_unsubscribe(this.mqtt_client, buffer->topic);
 
 	ESP_LOGI(TAG, "unsub @ {%s}", buffer->topic);
+
+	return ESP_OK;
 }
 
 static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
@@ -181,21 +188,25 @@ static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
 	return ESP_OK;
 }
 
-void mqtt_task(void *pvParameters)
+static void mqtt_task(void *pvParameters)
 {
 	// Initialize
-	if (this.mqtt_client != NULL)
-		return;
+	ESP_RETURN_ON_FALSE(this.mqtt_client == NULL, (void)0, TAG, "mqtt_client already init");
+
+	this.eventGroup = NULL;
+	this.mqtt_client = NULL;
+	this.taskHandle = NULL;
+	this.xBufHandle = NULL;
 
 	char *serverURL = (char *)pvParameters;
 	ESP_LOGI(TAG, "Start:param.url=[%s]\n", serverURL);
 	// Create Buffer stream
 	this.xBufHandle = xMessageBufferCreate(sizeof(Mqtt_Msg_t) + sizeof(size_t));
-	configASSERT(this.xBufHandle);
+	ESP_RETURN_ON_FALSE(this.xBufHandle != NULL, (void)0, TAG, "xBufHandle failed");
 
 	// Create Event Group
 	this.eventGroup = xEventGroupCreate();
-	configASSERT(this.eventGroup);
+	ESP_RETURN_ON_FALSE(this.eventGroup != NULL, (void)0, TAG, "eventGroup failed");
 
 	// Set client id from mac
 	uint8_t mac[8];
@@ -212,14 +223,14 @@ void mqtt_task(void *pvParameters)
 
 	this.mqtt_client = esp_mqtt_client_init(&mqtt_cfg);
 
+	ESP_RETURN_ON_FALSE(this.mqtt_client != NULL, (void)0, TAG, "mqtt_client failed");
+
 	esp_mqtt_client_start(this.mqtt_client);
 
 	mqtt_eventBitCtrl(MQTT_EVENT_CONNECTED_BIT, EVENT_CLEAR);
 
 	// Wait for connection to MQTT Broker
 	mqtt_eventWait(MQTT_EVENT_CONNECTED_BIT, EVENT_WAIT_ALL);
-
-	// ESP_LOGI(TAG, "MQTT Connected\n");
 
 	while (1)
 	{
@@ -264,16 +275,18 @@ void mqtt_task(void *pvParameters)
 	vTaskDelete(NULL);
 }
 
-void mqtt_task_init(const char *url)
+esp_err_t mqtt_task_init(const char *url)
 {
-	if (this.taskHandle != NULL)
-		return;
+	ESP_RETURN_ON_FALSE(this.taskHandle == NULL, ESP_FAIL, TAG, "already init");
 
 	// Start MQTT task
 	sprintf(this.serverURL, "%s", url);
-
 	ESP_LOGI(TAG, "start mqtt client: url=[%s]\n", this.serverURL);
 
 	this.taskHandle = xTaskGetCurrentTaskHandle();
+	ESP_RETURN_ON_FALSE(this.taskHandle != NULL, ESP_FAIL, TAG, "task init fail");
+
 	xTaskCreate(mqtt_task, TAG, 1024 * 6, (void *)this.serverURL, 9, NULL);
+
+	return ESP_OK;
 }
