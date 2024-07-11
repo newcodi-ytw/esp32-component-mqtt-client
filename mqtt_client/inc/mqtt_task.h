@@ -15,6 +15,9 @@
 #define MQTT_TOPIC_LEN          (512)
 #define MQTT_CONTEXT_LEN        (1024)
 
+//number of message of 1 buffer
+#define MQTT_MSG_BUFFER_SZIE    (10) 
+
 typedef struct mqtt_msg
 {
     char topic[MQTT_TOPIC_LEN];

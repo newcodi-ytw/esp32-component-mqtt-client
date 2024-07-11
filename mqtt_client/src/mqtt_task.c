@@ -177,7 +177,7 @@ static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
 		ESP_LOGI(TAG, "MQTT_EVENT_UNSUBSCRIBED, msg_id=%d", event->msg_id);
 		break;
 	case MQTT_EVENT_PUBLISHED:
-		// ESP_LOGI(TAG, "MQTT_EVENT_PUBLISHED, msg_id=%d", event->msg_id);
+		ESP_LOGI(TAG, "MQTT_EVENT_PUBLISHED, msg_id=%d (%d)", event->msg_id, xTaskGetTickCount());
 		break;
 	case MQTT_EVENT_DATA:
 		// ESP_LOGI(TAG, "MQTT_EVENT_DATA");
@@ -202,12 +202,12 @@ static void mqtt_task(void *pvParameters)
 	this.xBufHandle = NULL;
 
 	char *serverURL = (char *)pvParameters;
-	ESP_LOGI(TAG, "Start:param.url=[%s]\n", serverURL);
+	ESP_LOGI(TAG, "Start mqtt client: url=[%s]\n", serverURL);
 	
 	// size of data + size of handle
 	int bufSize = sizeof(Mqtt_Msg_t) + sizeof(size_t);
 	// Create Buffer stream
-	this.xBufHandle = xMessageBufferCreate(bufSize * 10);
+	this.xBufHandle = xMessageBufferCreate(bufSize * MQTT_MSG_BUFFER_SZIE);
 	configASSERT(this.xBufHandle);
 
 	// Create Event Group
@@ -235,8 +235,18 @@ static void mqtt_task(void *pvParameters)
 	// Wait for connection to MQTT Broker
 	mqtt_eventWait(MQTT_EVENT_CONNECTED_BIT, EVENT_WAIT_ALL);
 
+	TickType_t xLastWakeTime = xTaskGetTickCount();
 	while (1)
 	{
+		vTaskDelay(pdMS_TO_TICKS(100));
+		vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(250));
+		xLastWakeTime = xTaskGetTickCount();
+
+		if (xMessageBufferIsEmpty(this.xBufHandle))
+		{
+			continue;
+		}
+
 		Mqtt_Msg_t buffer = {0};
 		size_t received = xMessageBufferReceive(this.xBufHandle, &buffer, sizeof(Mqtt_Msg_t), portMAX_DELAY);
 
@@ -297,7 +307,7 @@ static void mqtt_task(void *pvParameters)
 
 	this.serverConnected = false;
 	this.taskHandle = NULL;
-	
+
 	vTaskDelete(NULL);
 }
 
@@ -319,7 +329,7 @@ esp_err_t mqtt_task_start(const char *url)
 	ESP_RETURN_ON_FALSE(this.taskHandle != NULL, ESP_FAIL, TAG, "task init fail");
 
 	// Start MQTT task
-	ESP_LOGI(TAG, "Start mqtt client: url=[%s]\n", this.serverURL);
+	// ESP_LOGI(TAG, "Start mqtt client: url=[%s]\n", this.serverURL);
 	xTaskCreate(mqtt_task, TAG, 1024 * 10, (void *)this.serverURL, 9, NULL);
 
 	return ESP_OK;
