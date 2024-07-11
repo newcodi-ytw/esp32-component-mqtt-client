@@ -11,10 +11,13 @@
 
 #define EVENT_WAIT_ALL  true
 
+#define MQTT_TOPIC_LEN          (512)
+#define MQTT_CONTEXT_LEN        (1024)
+
 typedef struct mqtt_msg
 {
-    char topic[512];
-    char context[512];
+    char topic[MQTT_TOPIC_LEN];
+    char context[MQTT_CONTEXT_LEN];
     int qos;
     int retainFlag;
 }Mqtt_Msg_t;
