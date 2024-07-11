@@ -40,7 +40,7 @@ static void mqtt_task(void *pvParameters);
 
 static struct mqtt_task
 {
-	char serverURL[50];
+	char serverURL[64];
 	bool serverConnected;
 	TaskHandle_t taskHandle;
 	MessageBufferHandle_t xBufHandle;
@@ -51,17 +51,17 @@ static struct mqtt_task
 esp_err_t mqtt_pubMsgTo(const char* topic, const char *context, int qos, int r)
 {
 	ESP_RETURN_ON_FALSE(this.serverConnected, ESP_FAIL, TAG, "server not connected");
+	ESP_RETURN_ON_FALSE(xMessageBufferIsFull(this.xBufHandle), ESP_FAIL, TAG, "msg buffer is full");
 	
+	size_t bufferSize = sizeof(Mqtt_Msg_t);
 	Mqtt_Msg_t buffer = {
 		.qos = qos,
 		.retainFlag = r,
 	};
 	sprintf(buffer.topic, "%s", topic);
 	sprintf(buffer.context, "%s", context);
-	size_t bufferSize = sizeof(Mqtt_Msg_t);
 
 	mqtt_eventBitCtrl(MQTT_EVENT_PUB, EVENT_SET);
-
 	BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 	size_t sended = xMessageBufferSendFromISR(this.xBufHandle, &buffer, bufferSize, &xHigherPriorityTaskWoken);
 
@@ -73,17 +73,17 @@ esp_err_t mqtt_pubMsgTo(const char* topic, const char *context, int qos, int r)
 esp_err_t mqtt_subTopicCfg(const char* topic, int qos, bool subOrUn)
 {
 	ESP_RETURN_ON_FALSE(this.serverConnected, ESP_FAIL, TAG, "server not connected");
+	ESP_RETURN_ON_FALSE(xMessageBufferIsFull(this.xBufHandle), ESP_FAIL, TAG, "msg buffer is full");
 
 	ESP_LOGI(TAG, "%s subscribe @ {%s}", subOrUn?"":"X", topic);
 
+	size_t bufferSize = sizeof(Mqtt_Msg_t);
 	Mqtt_Msg_t buffer = {
 		.qos = qos,
 	};
 	sprintf(buffer.topic, "%s", topic);
-	size_t bufferSize = sizeof(Mqtt_Msg_t);
 
 	mqtt_eventBitCtrl(subOrUn ? MQTT_EVENT_SUB : MQTT_EVENT_UNSUB, EVENT_SET);
-
 	BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 	size_t sended = xMessageBufferSendFromISR(this.xBufHandle, &buffer, sizeof(Mqtt_Msg_t), &xHigherPriorityTaskWoken);
 	
@@ -269,6 +269,7 @@ static void mqtt_task(void *pvParameters)
 			else
 			{
 				ESP_LOGI(TAG, "Connection to MQTT broker is broken. Skip to send\n");
+				break;
 			}
 		}
 		else
@@ -278,23 +279,60 @@ static void mqtt_task(void *pvParameters)
 		}
 	} // end while
 
-	// Stop connection
-	esp_mqtt_client_stop(this.mqtt_client);
-	vTaskDelete(NULL);
+	mqtt_task_stop();
 }
 
-esp_err_t mqtt_task_init(const char *url)
+esp_err_t mqtt_task_start(const char *url)
 {
 	ESP_RETURN_ON_FALSE(this.taskHandle == NULL, ESP_FAIL, TAG, "already init");
 
-	// Start MQTT task
-	sprintf(this.serverURL, "%s", url);
-	ESP_LOGI(TAG, "start mqtt client: url=[%s]\n", this.serverURL);
+	if(url == NULL && strlen(url) == 0)
+	{
+		sprintf(this.serverURL, "mqtt://broker.mqtt.cool:1883");
+	}
+	else
+	{
+		sprintf(this.serverURL, "%s", url);
+	}
+
 
 	this.taskHandle = xTaskGetCurrentTaskHandle();
 	ESP_RETURN_ON_FALSE(this.taskHandle != NULL, ESP_FAIL, TAG, "task init fail");
 
+	// Start MQTT task
+	ESP_LOGI(TAG, "Start mqtt client: url=[%s]\n", this.serverURL);
 	xTaskCreate(mqtt_task, TAG, 1024 * 10, (void *)this.serverURL, 9, NULL);
+
+	return ESP_OK;
+}
+
+esp_err_t mqtt_task_stop(void)
+{
+	ESP_LOGI(TAG, "Stop mqtt client: url=[%s]\n", this.serverURL);
+
+	this.serverConnected = false;
+
+	if(this.taskHandle)
+	{
+		vTaskDelete(this.taskHandle);
+		this.taskHandle = NULL;
+	}
+
+	if(this.mqtt_client)
+	{
+		esp_mqtt_client_destroy(this.mqtt_client);
+		this.mqtt_client = NULL;
+	}	
+
+	if(this.eventGroup){
+		vEventGroupDelete(this.eventGroup);
+		this.eventGroup = NULL;
+	}
+
+	if(this.xBufHandle){
+		vMessageBufferDelete(this.xBufHandle);
+		this.xBufHandle = NULL;
+	}
 
 	return ESP_OK;
 }

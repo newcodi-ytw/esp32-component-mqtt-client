@@ -22,7 +22,8 @@ typedef struct mqtt_msg
     int retainFlag;
 }Mqtt_Msg_t;
 
-esp_err_t mqtt_task_init(const char* url);
+esp_err_t mqtt_task_start(const char* url);
+esp_err_t mqtt_task_stop(void);
 esp_err_t mqtt_pubMsgTo(const char* topic, const char* context, int qos, int r);
 esp_err_t mqtt_subTopicCfg(const char* topic, int qos, bool subOrUn);
 
