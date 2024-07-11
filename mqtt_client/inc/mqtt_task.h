@@ -5,6 +5,7 @@
 #define MQTT_EVENT_UNSUB          BIT2
 #define MQTT_EVENT_PUB            BIT3
 #define MQTT_EVENT_CONNECTED_BIT  BIT4
+#define MQTT_EVENT_STOP_BIT       BIT5
 
 #define EVENT_SET       true
 #define EVENT_CLEAR     false
