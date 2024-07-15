@@ -143,12 +143,6 @@ static esp_err_t _mqtt_make_connection(char *url)
 
 static esp_err_t _mqtt_make_disconnection(void)
 {
-	if (!this->connected)
-	{
-		ESP_LOGI(TAG, "No connected");
-		return ESP_FAIL;
-	}
-
 	esp_mqtt_client_destroy(this->mqtt_client);
 	this->connected = false;
 
@@ -267,29 +261,40 @@ static void _mqtt_task(void *arg)
 {
 	while (1)
 	{
-		Mqtt_Msg_t msg;
-		if (_xMsgBufReceive(&msg))
+		if(xMessageBufferIsEmpty(this->xBufHandle))
 		{
-			if (msg.action == MQTT_ACTION_CONNECT)
+			vTaskDelay(pdMS_TO_TICKS(100));
+			continue;
+		}
+
+		Mqtt_Msg_t* msg = malloc(sizeof(Mqtt_Msg_t));
+		if (_xMsgBufReceive(msg))
+		{
+			if (msg->action == MQTT_ACTION_CONNECT)
 			{
-				_mqtt_make_connection(msg.serverURL);
+				_mqtt_make_connection(msg->serverURL);
 			}
-			else if (msg.action == MQTT_ACTION_DISCONNECT)
+			else if (msg->action == MQTT_ACTION_DISCONNECT)
 			{
 				_mqtt_make_disconnection();
 			}
-			else if (msg.action == MQTT_ACTION_PUB)
+			else if (msg->action == MQTT_ACTION_PUB)
 			{
-				_mqtt_make_publish(&msg);
+				_mqtt_make_publish(msg);
 			}
-			else if (msg.action == MQTT_ACTION_SUB)
+			else if (msg->action == MQTT_ACTION_SUB)
 			{
-				_mqtt_make_subscribe(&msg);
+				_mqtt_make_subscribe(msg);
 			}
-			else if (msg.action == MQTT_ACTION_UNSUB)
+			else if (msg->action == MQTT_ACTION_UNSUB)
 			{
-				_mqtt_make_unsubscribe(&msg);
+				_mqtt_make_unsubscribe(msg);
 			}
+		}
+		if(msg)
+		{
+			ESP_LOGI(TAG, "msg id:%d free", msg->action);
+			free(msg);
 		}
 	}
 	this->taskHandle = NULL;
