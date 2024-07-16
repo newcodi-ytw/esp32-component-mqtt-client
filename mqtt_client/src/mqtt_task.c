@@ -100,8 +100,24 @@ static esp_err_t _mqtt_event_handler(esp_mqtt_event_handle_t event)
 		ESP_LOGI(TAG, "unsubscribed msg-id: %d", event->msg_id);
 		break;
 	case MQTT_EVENT_DATA:
-		ESP_LOGI(TAG, "@{%s}\n>>>\n%s\n<<<\n", event->topic, event->data);
+	{
+		char* topic = malloc(sizeof(char) * event->topic_len);
+		char* data = malloc(sizeof(char) * event->data_len);
+		if(topic == NULL || data == NULL) break;
+
+		strncpy(topic, event->topic, event->topic_len);
+		strncpy(data, event->data, event->data_len);
+
+		ESP_LOGI(TAG, "\nTopic:%s"
+						"\nqos:%d retian:%d"
+						"\n%s\n",
+						topic,
+						event->qos, event->retain,
+						data);
+		free(topic);
+		free(data);
 		break;
+	}
 	case MQTT_EVENT_BEFORE_CONNECT:
 	case MQTT_EVENT_ERROR:
 		break;
@@ -263,7 +279,8 @@ static void _mqtt_task(void *arg)
 	{
 		if(xMessageBufferIsEmpty(this->xBufHandle))
 		{
-			vTaskDelay(pdMS_TO_TICKS(100));
+			//depends on the network speed
+			vTaskDelay(pdMS_TO_TICKS(20));
 			continue;
 		}
 
@@ -293,7 +310,7 @@ static void _mqtt_task(void *arg)
 		}
 		if(msg)
 		{
-			ESP_LOGI(TAG, "msg id:%d free", msg->action);
+			// ESP_LOGI(TAG, "msg id:%d free", msg->action);
 			free(msg);
 		}
 	}
